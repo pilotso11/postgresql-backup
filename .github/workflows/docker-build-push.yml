@@ -1,0 +1,59 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  build-and-push:
+    name: Build and Push PostgreSQL Backup Images
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: ['10', '11', '12', '13', '14', '15', '16', '17']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ github.repository }}
+          tags: |
+            type=ref,event=branch-pg${{ matrix.postgres-version }}
+            type=ref,event=pr-pg${{ matrix.postgres-version }}
+            type=semver,pattern={{version}}-pg${{ matrix.postgres-version }}
+            type=semver,pattern={{major}}.{{minor}}-pg${{ matrix.postgres-version }}
+            type=semver,pattern={{major}}-pg${{ matrix.postgres-version }}
+            type=sha-pg${{ matrix.postgres-version }}
+
+      - name: Prepare build context
+        run: |
+          mkdir -p build/${{ matrix.postgres-version }}
+          cp template/* build/${{ matrix.postgres-version }}/
+          sed "s/%VERSION%/${{ matrix.postgres-version }}/g" template/Dockerfile > build/${{ matrix.postgres-version }}/Dockerfile
+      
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: build/${{ matrix.postgres-version }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

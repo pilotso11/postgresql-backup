@@ -1,0 +1,5 @@
+/.venv/
+/.secrets/
+/tmp/
+/out/
+.idea/

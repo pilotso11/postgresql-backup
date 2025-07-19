@@ -17,15 +17,21 @@ S3_EXTRA_OPTIONS = os.environ.get("S3_EXTRA_OPTIONS", "")
 
 DB_USE_ENV = os.environ.get("DB_USE_ENV", False)
 DB_NAME = os.environ["DB_NAME"] if "DB_NAME" in os.environ else os.environ.get("PGDATABASE")
+DB_NAMES = os.environ.get("DB_NAMES")
 
-if not DB_NAME:
-    raise Exception("DB_NAME must be set")
+if not DB_NAME and not DB_NAMES:
+    raise Exception("DB_NAME or DB_NAMES must be set")
 
 if not DB_USE_ENV:
     DB_HOST = os.environ["DB_HOST"]
-    DB_PASS = os.environ["DB_PASS"]
+    DB_PASS = os.environ.get("DB_PASS", "")
     DB_USER = os.environ["DB_USER"]
     DB_PORT = os.environ.get("DB_PORT", "5432")
+    DB_PASS_FILE = os.environ.get("DB_PASS_FILE")
+    if DB_PASS_FILE:
+        print(f"Reading password from: {DB_PASS_FILE}")
+        with open(DB_PASS_FILE, "r") as f:
+            DB_PASS = f.read().strip()
 
 MAIL_TO = os.environ.get("MAIL_TO")
 MAIL_FROM = os.environ.get("MAIL_FROM")
@@ -34,11 +40,7 @@ WEBHOOK_METHOD = os.environ.get("WEBHOOK_METHOD")
 WEBHOOK_DATA = os.environ.get("WEBHOOK_DATA")
 WEBHOOK_CURL_OPTIONS = os.environ.get("WEBHOOK_CURL_OPTIONS", "")
 KEEP_BACKUP_DAYS = int(os.environ.get("KEEP_BACKUP_DAYS", 7))
-FILENAME = os.environ.get("FILENAME", DB_NAME + "_%Y-%m-%d")
 PG_DUMP_EXTRA_OPTIONS = os.environ.get("PG_DUMP_EXTRA_OPTIONS", "")
-
-file_name = dt.strftime(FILENAME)
-backup_file = os.path.join(BACKUP_DIR, file_name)
 
 if not S3_PATH.endswith("/"):
     S3_PATH = S3_PATH + "/"
@@ -55,21 +57,21 @@ def cmd(command, **kwargs):
         sys.stderr.write("\n".join([
             "Command execution failed. Output:",
             "-"*80,
-            e.output,
+            e.output.decode('utf-8'),  # Convert bytes to string
             "-"*80,
             ""
         ]))
         raise
 
-def backup_exists():
+def backup_exists(backup_file: str):
     return os.path.exists(backup_file)
 
-def take_backup():
+def take_backup(backup_file: str, db_name: str):
     env = os.environ.copy()
     if DB_USE_ENV:
         env.update({key: os.environ[key] for key in os.environ.keys() if key.startswith('PG') })
     else:
-        env.update({'PGPASSWORD': DB_PASS, 'PGHOST': DB_HOST, 'PGUSER': DB_USER, 'PGDATABASE': DB_NAME, 'PGPORT': DB_PORT})
+        env.update({'PGPASSWORD': DB_PASS, 'PGHOST': DB_HOST, 'PGUSER': DB_USER, 'PGDATABASE': db_name, 'PGPORT': DB_PORT})
 
     # trigger postgres-backup
     command = [
@@ -81,12 +83,12 @@ def take_backup():
     command.append("> %s" % backup_file)
     cmd(" ".join(command), env=env)
 
-def upload_backup():
+def upload_backup(backup_file: str):
     opts = "--storage-class=%s %s" % (S3_STORAGE_CLASS, S3_EXTRA_OPTIONS)
     cmd("aws s3 cp %s %s %s" % (opts, backup_file, S3_PATH))
 
 def prune_local_backup_files():
-    cmd("find %s -type f -prune -mtime +%i -exec rm -f {} \;" % (BACKUP_DIR, KEEP_BACKUP_DAYS))
+    cmd("find %s -type f -prune -mtime +%i -exec rm -f {} \\;" % (BACKUP_DIR, KEEP_BACKUP_DAYS))
 
 def send_email(to_address, from_address, subject, body):
     """
@@ -108,15 +110,20 @@ def pretty_bytes(num):
             return "%3.1f %s" % (num, x)
         num /= 1024.0
 
-def main():
+def main_one(db_name: str):
+    def_file_name = db_name + "_%Y-%m-%d"
+    filename = os.environ.get("FILENAME", def_file_name)
+    file_name = dt.strftime(filename)
+    backup_file = os.path.join(BACKUP_DIR, file_name)
+
     start_time = datetime.now()
-    log("Dumping database")
-    take_backup()
+    log(f"Dumping database: {db_name}")
+    take_backup(backup_file, db_name)
     backup_size=os.path.getsize(backup_file)
 
     if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
         log("Uploading to S3")
-        upload_backup()
+        upload_backup(backup_file)
     else:
         log("Skipping S3 upload, no AWS credentials provided")
 
@@ -137,7 +144,7 @@ def main():
         send_email(
             MAIL_TO,
             MAIL_FROM,
-            "Backup complete: %s" % DB_NAME,
+            "Backup complete: %s" % db_name,
             "Took %(duration)s seconds" % meta,
         )
 
@@ -152,6 +159,12 @@ def main():
 
     log("Backup complete, took %(duration)s seconds, size %(size)s" % meta)
 
+def main():
+    if not DB_NAMES:
+        main_one(DB_NAME)
+    else:
+        for name in DB_NAMES.split(","):
+            main_one(name.strip())
 
 if __name__ == "__main__":
     main()

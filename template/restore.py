@@ -16,11 +16,15 @@ DB_NAME = os.environ["DB_NAME"] if "DB_NAME" in os.environ else os.environ.get("
 if not DB_NAME:
     raise Exception("DB_NAME must be set")
 
-if not DB_USE_ENV:
-    DB_HOST = os.environ["DB_HOST"]
-    DB_PASS = os.environ["DB_PASS"]
-    DB_USER = os.environ["DB_USER"]
-    DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_HOST = os.environ["DB_HOST"]
+DB_PASS = os.environ.get("DB_PASS", "")
+DB_USER = os.environ["DB_USER"]
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_PASS_FILE = os.environ.get("DB_PASS_FILE")
+if DB_PASS_FILE:
+    print(f"Reading password from: {DB_PASS_FILE}")
+    with open(DB_PASS_FILE, "r") as f:
+        DB_PASS = f.read().strip()
 
 file_name = sys.argv[1]
 backup_file = os.path.join(BACKUP_DIR, file_name)
@@ -35,7 +39,7 @@ def cmd(command, **kwargs):
         sys.stderr.write("\n".join([
             "Command execution failed. Output:",
             "-"*80,
-            e.output.decode(),
+            e.output.decode("utf-8"),
             "-"*80,
             ""
         ]))

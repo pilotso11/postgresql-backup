@@ -94,8 +94,10 @@ The following environment variables are required:
 
 * `DB_HOST`: Postgres hostname
 * `DB_PASS`: Postgres password
+* `DB_PASS_FILE`: Path to a file containing the Postgres password. If this is set, `DB_PASS` will be ignored.
 * `DB_USER`: Postgres username
 * `DB_NAME`: Name of database to import into
+* `DB_NAMES`: Comma separated list of database names to restore. If not set, the first database in the backup file will be restored.
 
 The following environment variables are required if the file to restore is not already in the backup volume:
 
@@ -123,7 +125,8 @@ image.
 The following docker tags are available for this image, and they are based on the corresponding official postgres
 alpine image:
 
-* `16`, `latest`
+* `17`, `latest`
+* `16`
 * `15`
 * `14`
 * `13`
