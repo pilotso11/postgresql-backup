@@ -12,6 +12,17 @@ jobs:
     name: Test PostgreSQL Backup
     runs-on: ubuntu-latest
 
+  services:
+    postgres:
+      image: postgres:16-alpine
+      env:
+        POSTGRES_PASSWORD: test
+        POSTGRES_USER: test
+        POSTGRES_DB: testdb
+      ports:
+        - 5432:5432
+      options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,15 +47,6 @@ jobs:
           tags: postgresql-backup:test-16
           load: true
 
-      - name: Start PostgreSQL container
-        run: |
-          docker run -d \
-            --name postgres-test \
-            -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_DB=testdb \
-            postgres:16-alpine
-
       - name: Wait for PostgreSQL to start
         run: |
           echo "Waiting for PostgreSQL to start..."
@@ -55,7 +57,10 @@ jobs:
         run: |
           docker run --rm \
             --link postgres-test:db \
-            -e DB_USE_ENV=true \
+            -e DB_HOST=postgres \
+            -e DB_PORT=5432 \
+            -e DB_PASS=test \
+            -e DB_USER=test \
             -e DB_NAME=testdb \
             -v ${{ github.workspace }}/backup-output:/data/backups \
             --entrypoint "/backup/run.sh" \
