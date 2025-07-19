@@ -1,9 +1,16 @@
 name: Full Tests
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*', 'latest' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
   tests:
-    name: pg-${{ matrix.postgres_version }}
+    name: pg-${{ matrix.postgres-version }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -13,11 +20,11 @@ jobs:
 
     services:
       postgres:
-        image: postgres:${{ matrix.postgres_version }}-alpine
+        image: postgres:${{ matrix.postgres-version }}-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_USER: test
-          POSTGRES_DB: test_${{ matrix.postgres_version }}
+          POSTGRES_DB: test_${{ matrix.postgres-version }}
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
@@ -34,9 +41,9 @@ jobs:
       - name: Create Test Data
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           run: >
-            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+            psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
               CREATE TABLE books (
                 id serial PRIMARY KEY,
                 name VARCHAR ( 128 ) UNIQUE NOT NULL,
@@ -72,40 +79,40 @@ jobs:
 
       - name: Prepare build context
         run: |
-          mkdir -p build/${{ matrix.postgres_version }}
-          cp template/* build/${{ matrix.postgres_version }}/
-          sed "s/%VERSION%/${{ matrix.postgres_version }}/g" template/Dockerfile > build/${{ matrix.postgres_version }}/Dockerfile
+          mkdir -p build/${{ matrix.postgres-version }}
+          cp template/* build/${{ matrix.postgres-version }}/
+          sed "s/%VERSION%/${{ matrix.postgres-version }}/g" template/Dockerfile > build/${{ matrix.postgres-version }}/Dockerfile
 
       - name: Build test image
         uses: docker/build-push-action@v6
         with:
-          context: build/${{ matrix.postgres_version }}
+          context: build/${{ matrix.postgres-version }}
           push: false
-          tags: postgresql-backup:test-${{ matrix.postgres_version }}
+          tags: postgresql-backup:test-${{ matrix.postgres-version }}
           load: true
 
 
       - name: Take Backup
         uses: addnab/docker-run-action@v3
         with:
-          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          image: postgresql-backup:test-${{ matrix.postgres-version }}
           run: python3 -u /backup/backup.py
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
             -e DB_HOST=postgres
             -e DB_PASS=test
             -e DB_USER=test
-            -e DB_NAME=test_${{ matrix.postgres_version }}
+            -e DB_NAME=test_${{ matrix.postgres-version }}
             -e S3_PATH=s3://test-postgresql-backup/backups
             -e AWS_ACCESS_KEY_ID=access_key
             -e AWS_SECRET_ACCESS_KEY=secret
             -e AWS_DEFAULT_REGION=us-east-1
-            -e FILENAME=test_${{ matrix.postgres_version }}
+            -e FILENAME=test_${{ matrix.postgres-version }}
 
       - name: Take Backup (using DB_USE_ENV)
         uses: addnab/docker-run-action@main
         with:
-          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          image: postgresql-backup:test-${{ matrix.postgres-version }}
           run: python3 -u /backup/backup.py
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -113,17 +120,17 @@ jobs:
             -e PGHOST=postgres
             -e PGPASSWORD=test
             -e PGUSER=test
-            -e PGDATABASE=test_${{ matrix.postgres_version }}
+            -e PGDATABASE=test_${{ matrix.postgres-version }}
             -e S3_PATH=s3://test-postgresql-backup/backups
             -e AWS_ACCESS_KEY_ID=access_key
             -e AWS_SECRET_ACCESS_KEY=secret
             -e AWS_DEFAULT_REGION=us-east-1
-            -e FILENAME=test_${{ matrix.postgres_version }}_env
+            -e FILENAME=test_${{ matrix.postgres-version }}_env
 
       - name: Take Backup (using PG_DUMP_EXTRA_OPTIONS)
         uses: addnab/docker-run-action@main
         with:
-          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          image: postgresql-backup:test-${{ matrix.postgres-version }}
           run: python3 -u /backup/backup.py
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -131,12 +138,12 @@ jobs:
             -e PGHOST=postgres
             -e PGPASSWORD=test
             -e PGUSER=test
-            -e PGDATABASE=test_${{ matrix.postgres_version }}
+            -e PGDATABASE=test_${{ matrix.postgres-version }}
             -e S3_PATH=s3://test-postgresql-backup/backups
             -e AWS_ACCESS_KEY_ID=access_key
             -e AWS_SECRET_ACCESS_KEY=secret
             -e AWS_DEFAULT_REGION=us-east-1
-            -e FILENAME=test_${{ matrix.postgres_version }}_exclude
+            -e FILENAME=test_${{ matrix.postgres-version }}_exclude
             -e PG_DUMP_EXTRA_OPTIONS='--exclude-table=movies'
 
       - name: Check equality
@@ -145,10 +152,10 @@ jobs:
           image: amazon/aws-cli
           entryPoint: /bin/bash
           run: |
-            aws s3 --endpoint-url=http://s3:8000 cp s3://test-postgresql-backup/backups/test_${{ matrix.postgres_version }} .
-            aws s3 --endpoint-url=http://s3:8000 cp s3://test-postgresql-backup/backups/test_${{ matrix.postgres_version }}_env .
-            diff test_${{ matrix.postgres_version }} test_${{ matrix.postgres_version }}_env
-            echo "$( md5sum test_${{ matrix.postgres_version }} |awk '{print $1}') test_${{ matrix.postgres_version }}_env"|md5sum -c
+            aws s3 --endpoint-url=http://s3:8000 cp s3://test-postgresql-backup/backups/test_${{ matrix.postgres-version }} .
+            aws s3 --endpoint-url=http://s3:8000 cp s3://test-postgresql-backup/backups/test_${{ matrix.postgres-version }}_env .
+            diff test_${{ matrix.postgres-version }} test_${{ matrix.postgres-version }}_env
+            echo "$( md5sum test_${{ matrix.postgres-version }} |awk '{print $1}') test_${{ matrix.postgres-version }}_env"|md5sum -c
           options: >
             -e AWS_EC2_METADATA_DISABLED=true
             -e AWS_ACCESS_KEY_ID=access_key
@@ -157,9 +164,9 @@ jobs:
       - name: Clear DB table
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           run: >
-            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+            psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
               DROP TABLE books;
               DROP TABLE movies;
             '
@@ -169,10 +176,10 @@ jobs:
       - name: Check that table was actually removed
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           shell: bash
           run: >
-            [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+            [[ "0" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
               '` ]]
           options: >
@@ -181,14 +188,14 @@ jobs:
       - name: Restore Backup
         uses: addnab/docker-run-action@v3
         with:
-          image: postgresql-backup:test-${{ matrix.postgres_version }}
-          run: python3 -u /backup/restore.py test_${{ matrix.postgres_version }}
+          image: postgresql-backup:test-${{ matrix.postgres-version }}
+          run: python3 -u /backup/restore.py test_${{ matrix.postgres-version }}
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
             -e DB_HOST=postgres
             -e DB_PASS=test
             -e DB_USER=test
-            -e DB_NAME=test_${{ matrix.postgres_version }}
+            -e DB_NAME=test_${{ matrix.postgres-version }}
             -e S3_PATH=s3://test-postgresql-backup/backups
             -e AWS_ACCESS_KEY_ID=access_key
             -e AWS_SECRET_ACCESS_KEY=secret
@@ -197,12 +204,12 @@ jobs:
       - name: Check that table got imported
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           shell: bash
           run: >
-            [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+            [[ "1" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
-              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT name FROM books WHERE author=$$Linda Skugge$$;
               '` ]]
           options: >
@@ -211,13 +218,13 @@ jobs:
       - name: Clear DB table
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           shell: bash
           run: >
-            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+            psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
               DROP TABLE books;
               DROP TABLE movies;
-            ' && [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+            ' && [[ "0" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
               SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
             '` ]]
           options: >
@@ -226,15 +233,15 @@ jobs:
       - name: Restore Backup (DB_USE_ENV)
         uses: addnab/docker-run-action@main
         with:
-          image: postgresql-backup:test-${{ matrix.postgres_version }}
-          run: python3 -u /backup/restore.py test_${{ matrix.postgres_version }}_env
+          image: postgresql-backup:test-${{ matrix.postgres-version }}
+          run: python3 -u /backup/restore.py test_${{ matrix.postgres-version }}_env
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
             -e DB_USE_ENV=True
             -e PGHOST=postgres
             -e PGPASSWORD=test
             -e PGUSER=test
-            -e PGDATABASE=test_${{ matrix.postgres_version }}
+            -e PGDATABASE=test_${{ matrix.postgres-version }}
             -e S3_PATH=s3://test-postgresql-backup/backups
             -e AWS_ACCESS_KEY_ID=access_key
             -e AWS_SECRET_ACCESS_KEY=secret
@@ -243,12 +250,12 @@ jobs:
       - name: Check that table got imported
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           shell: bash
           run: >
-            [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+            [[ "1" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
-              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT name FROM books WHERE author=$$Linda Skugge$$;
               '` ]]
           options: >
@@ -257,13 +264,13 @@ jobs:
       - name: Clear DB table
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           shell: bash
           run: >
-            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+            psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
               DROP TABLE books;
               DROP TABLE movies;
-            ' && [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+            ' && [[ "0" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
               SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
             '` ]]
           options: >
@@ -272,14 +279,14 @@ jobs:
       - name: Restore Backup (PG_DUMP_EXTRA_OPTIONS)
         uses: addnab/docker-run-action@main
         with:
-          image: postgresql-backup:test-${{ matrix.postgres_version }}
-          run: python3 -u /backup/restore.py test_${{ matrix.postgres_version }}_exclude
+          image: postgresql-backup:test-${{ matrix.postgres-version }}
+          run: python3 -u /backup/restore.py test_${{ matrix.postgres-version }}_exclude
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
             -e DB_HOST=postgres
             -e DB_PASS=test
             -e DB_USER=test
-            -e DB_NAME=test_${{ matrix.postgres_version }}
+            -e DB_NAME=test_${{ matrix.postgres-version }}
             -e S3_PATH=s3://test-postgresql-backup/backups
             -e AWS_ACCESS_KEY_ID=access_key
             -e AWS_SECRET_ACCESS_KEY=secret
@@ -288,14 +295,14 @@ jobs:
       - name: Check that table got imported (PG_DUMP_EXTRA_OPTIONS)
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}-alpine
+          image: postgres:${{ matrix.postgres-version }}-alpine
           shell: bash
           run: >
-            [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+            [[ "1" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
-              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT name FROM books WHERE author=$$Linda Skugge$$;
-              '` ]] && [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+              '` ]] && [[ "0" == `psql -d test_${{ matrix.postgres-version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
                 SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$movies$$;
               '` ]]
           options: >
