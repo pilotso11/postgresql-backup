@@ -64,10 +64,10 @@ jobs:
         run: |
           echo "Checking for backup files..."
           ls -la ${{ github.workspace }}/backup-output
-
+          
           # Count backup files
           BACKUP_COUNT=$(find ${{ github.workspace }}/backup-output -type f | wc -l)
-
+          
           if [ "$BACKUP_COUNT" -eq 0 ]; then
             echo "Error: No backup files were created!"
             exit 1
