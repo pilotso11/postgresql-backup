@@ -46,7 +46,7 @@ jobs:
             type=sha
           flavor: |
             latest=auto
-            suffix=pg${{ matrix.postgres-version }},onlatest=true
+            suffix=-pg${{ matrix.postgres-version }},onlatest=true
 
       - name: Prepare build context
         run: |
