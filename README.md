@@ -1,10 +1,10 @@
 # Docker PostgreSQL Backup
 
-[![Build Status](https://github.com/heyman/postgresql-backup/workflows/Test/badge.svg)](https://github.com/heyman/postgresql-backup/actions?query=workflow%3ATest)
+[![Build Status](https://github.com/pilotso11/postgresql-backup/workflows/Test/badge.svg)](https://github.com/pilotso11/postgresql-backup/actions?query=workflow%3ATest)
 
 Docker image that periodically dumps a Postgres database, and optionally uploads it to an Amazon S3 bucket.
 
-Available on Docker Hub: [heyman/postgresql-backup](https://hub.docker.com/r/heyman/postgresql-backup)
+Available on Docker Hub: [pilotso11/postgresql-backup](https://hub.docker.com/r/pilotso11/postgresql-backup)
 
 ## Example
 
@@ -20,7 +20,7 @@ docker run -it --rm --name=pgbackup \
     -e S3_PATH='s3://my-bucket/backups/' \
     -e AWS_ACCESS_KEY_ID='[aws key id]' \
     -e AWS_SECRET_ACCESS_KEY='[aws secret key]' \
-    heyman/postgresql-backup:15
+    pilotso11/postgresql-backup:latest-pg15
 ```
 
 ## Required environment variables
@@ -127,11 +127,13 @@ image.
 The following docker tags are available for this image, and they are based on the corresponding official postgres
 alpine image:
 
-* `17`, `latest`
-* `16`
-* `15`
-* `14`
-* `13`
-* `12`
-* `11`
-* `10`
+* `latest-pg17`
+* `latest-pg16`
+* `latest-pg15`
+* `latest-pg14`
+* `latest-pg13`
+* `latest-pg12`
+* `latest-pg11`
+* `latest-pg10`
+
+Previous versions are available as well, but latest is recommended.
