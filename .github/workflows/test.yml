@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 jobs:
   tests:
-    name: ${{ matrix.postgres_version }}
+    name: pg-${{ matrix.postgres_version }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -13,7 +13,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:${{ matrix.postgres_version }}
+        image: postgres:${{ matrix.postgres_version }}-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_USER: test
@@ -34,7 +34,7 @@ jobs:
       - name: Create Test Data
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           run: >
             psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
               CREATE TABLE books (
@@ -157,7 +157,7 @@ jobs:
       - name: Clear DB table
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           run: >
             psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
               DROP TABLE books;
@@ -169,7 +169,7 @@ jobs:
       - name: Check that table was actually removed
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           shell: bash
           run: >
             [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
@@ -197,7 +197,7 @@ jobs:
       - name: Check that table got imported
         uses: addnab/docker-run-action@v3
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           shell: bash
           run: >
             [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
@@ -211,7 +211,7 @@ jobs:
       - name: Clear DB table
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           shell: bash
           run: >
             psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
@@ -243,7 +243,7 @@ jobs:
       - name: Check that table got imported
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           shell: bash
           run: >
             [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
@@ -257,7 +257,7 @@ jobs:
       - name: Clear DB table
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           shell: bash
           run: >
             psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
@@ -288,7 +288,7 @@ jobs:
       - name: Check that table got imported (PG_DUMP_EXTRA_OPTIONS)
         uses: addnab/docker-run-action@main
         with:
-          image: postgres:${{ matrix.postgres_version }}
+          image: postgres:${{ matrix.postgres_version }}-alpine
           shell: bash
           run: >
             [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
