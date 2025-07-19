@@ -50,7 +50,7 @@ jobs:
       - name: Run backup
         run: |
           docker run --rm \
-            --network=github_network \
+            --network=host \
             -e DB_HOST=postgres \
             -e DB_PORT=5432 \
             -e DB_PASS=test \
