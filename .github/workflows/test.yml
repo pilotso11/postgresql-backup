@@ -1,88 +1,302 @@
-name: Test Backup Functionality on pg16
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch: # Allows manual triggering of the workflow
+name: Full Tests
+on: [push, pull_request]
 
 jobs:
-  test-backup:
-    name: Test PostgreSQL Backup
+  tests:
+    name: ${{ matrix.postgres_version }}
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: ['10', '11', '12', '13', '14', '15', '16', '17']
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:${{ matrix.postgres_version }}
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_USER: test
-          POSTGRES_DB: testdb
+          POSTGRES_DB: test_${{ matrix.postgres_version }}
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      s3:
+        image: zenko/cloudserver
+        env:
+          ENDPOINT: s3
+          S3BACKEND: mem
+          REMOTE_MANAGEMENT_DISABLE: 1
+          SCALITY_ACCESS_KEY_ID: access_key
+          SCALITY_SECRET_ACCESS_KEY: secret
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Create Test Data
+        uses: addnab/docker-run-action@v3
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          run: >
+            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+              CREATE TABLE books (
+                id serial PRIMARY KEY,
+                name VARCHAR ( 128 ) UNIQUE NOT NULL,
+                author VARCHAR (128 ) NOT NULL
+              );
+              INSERT INTO books (name, author) VALUES
+                ($$Fittstim$$, $$Linda Skugge$$),
+                ($$DSM-5$$, $$American Psychiatric Association$$);
+              
+              CREATE TABLE movies (
+                id serial PRIMARY KEY,
+                name VARCHAR ( 128 ) UNIQUE NOT NULL,
+                director VARCHAR (128 ) NOT NULL
+              );
+              INSERT INTO movies (name, director) VALUES
+                ($$Beau Travail$$, $$Claire Denis$$),
+                ($$Reservoir Dogs$$, $$Quentin Tarantino$$);
+            '
+          options: >
+            -e PGPASSWORD=test
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Create S3 bucket
+        uses: addnab/docker-run-action@v3
+        with:
+          image: amazon/aws-cli
+          run: aws --endpoint-url=http://s3:8000 s3api create-bucket --bucket test-postgresql-backup; aws --endpoint-url=http://s3:8000 s3 ls
+          options: >
+            -e AWS_EC2_METADATA_DISABLED=true
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
 
-      - name: Create backup directory
-        run: mkdir -p ./backup-output
+      - uses: actions/checkout@v2
 
       - name: Prepare build context
         run: |
-          mkdir -p build/16
-          cp template/* build/16/
-          sed "s/%VERSION%/16/g" template/Dockerfile > build/16/Dockerfile
+          mkdir -p build/${{ matrix.postgres_version }}
+          cp template/* build/${{ matrix.postgres_version }}/
+          sed "s/%VERSION%/${{ matrix.postgres_version }}/g" template/Dockerfile > build/${{ matrix.postgres_version }}/Dockerfile
 
       - name: Build test image
         uses: docker/build-push-action@v6
         with:
-          context: build/16
+          context: build/${{ matrix.postgres_version }}
           push: false
-          tags: postgresql-backup:test-16
+          tags: postgresql-backup:test-${{ matrix.postgres_version }}
           load: true
 
-      - name: Run backup
-        run: |
-          docker run --rm \
-            --network=${{ job.container.network }} \
-            -e DB_HOST=postgres \
-            -e DB_PORT=5432 \
-            -e DB_PASS=test \
-            -e DB_USER=test \
-            -e DB_NAME=testdb \
-            -v ${{ github.workspace }}/backup-output:/data/backups \
-            --entrypoint "/backup/run.sh" \
-            postgresql-backup:test-16
 
-      - name: Check backup was created
-        run: |
-          echo "Checking for backup files..."
-          ls -la ${{ github.workspace }}/backup-output
+      - name: Take Backup
+        uses: addnab/docker-run-action@v3
+        with:
+          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          run: python3 -u /backup/backup.py
+          options: >
+            -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
+            -e DB_HOST=postgres
+            -e DB_PASS=test
+            -e DB_USER=test
+            -e DB_NAME=test_${{ matrix.postgres_version }}
+            -e S3_PATH=s3://test-postgresql-backup/backups
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
+            -e AWS_DEFAULT_REGION=us-east-1
+            -e FILENAME=test_${{ matrix.postgres_version }}
 
-          # Count backup files
-          BACKUP_COUNT=$(find ${{ github.workspace }}/backup-output -type f | wc -l)
+      - name: Take Backup (using DB_USE_ENV)
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          run: python3 -u /backup/backup.py
+          options: >
+            -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
+            -e DB_USE_ENV=True
+            -e PGHOST=postgres
+            -e PGPASSWORD=test
+            -e PGUSER=test
+            -e PGDATABASE=test_${{ matrix.postgres_version }}
+            -e S3_PATH=s3://test-postgresql-backup/backups
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
+            -e AWS_DEFAULT_REGION=us-east-1
+            -e FILENAME=test_${{ matrix.postgres_version }}_env
 
-          if [ "$BACKUP_COUNT" -eq 0 ]; then
-            echo "Error: No backup files were created!"
-            exit 1
-          else
-            echo "Success: Found $BACKUP_COUNT backup file(s)"
-          fi
+      - name: Take Backup (using PG_DUMP_EXTRA_OPTIONS)
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          run: python3 -u /backup/backup.py
+          options: >
+            -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
+            -e DB_USE_ENV=True
+            -e PGHOST=postgres
+            -e PGPASSWORD=test
+            -e PGUSER=test
+            -e PGDATABASE=test_${{ matrix.postgres_version }}
+            -e S3_PATH=s3://test-postgresql-backup/backups
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
+            -e AWS_DEFAULT_REGION=us-east-1
+            -e FILENAME=test_${{ matrix.postgres_version }}_exclude
+            -e PG_DUMP_EXTRA_OPTIONS='--exclude-table=movies'
 
-          # Verify backup file format
-          BACKUP_FILE=$(find ${{ github.workspace }}/backup-output -type f | head -n 1)
-          echo "Backup file: $BACKUP_FILE"
+      - name: Check equality
+        uses: addnab/docker-run-action@main
+        with:
+          image: amazon/aws-cli
+          entryPoint: /bin/bash
+          run: |
+            aws s3 --endpoint-url=http://s3:8000 cp s3://test-postgresql-backup/backups/test_${{ matrix.postgres_version }} .
+            aws s3 --endpoint-url=http://s3:8000 cp s3://test-postgresql-backup/backups/test_${{ matrix.postgres_version }}_env .
+            diff test_${{ matrix.postgres_version }} test_${{ matrix.postgres_version }}_env
+            echo "$( md5sum test_${{ matrix.postgres_version }} |awk '{print $1}') test_${{ matrix.postgres_version }}_env"|md5sum -c
+          options: >
+            -e AWS_EC2_METADATA_DISABLED=true
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
 
-          # Check if the backup file is a valid PostgreSQL dump
-          if file "$BACKUP_FILE" | grep -q "PostgreSQL"; then
-            echo "Success: Backup file is a valid PostgreSQL dump"
-          else
-            echo "Warning: Backup file format could not be verified"
-            file "$BACKUP_FILE"
-          fi
+      - name: Clear DB table
+        uses: addnab/docker-run-action@v3
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          run: >
+            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+              DROP TABLE books;
+              DROP TABLE movies;
+            '
+          options: >
+            -e PGPASSWORD=test
+
+      - name: Check that table was actually removed
+        uses: addnab/docker-run-action@v3
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          shell: bash
+          run: >
+            [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
+              '` ]]
+          options: >
+            -e PGPASSWORD=test
+
+      - name: Restore Backup
+        uses: addnab/docker-run-action@v3
+        with:
+          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          run: python3 -u /backup/restore.py test_${{ matrix.postgres_version }}
+          options: >
+            -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
+            -e DB_HOST=postgres
+            -e DB_PASS=test
+            -e DB_USER=test
+            -e DB_NAME=test_${{ matrix.postgres_version }}
+            -e S3_PATH=s3://test-postgresql-backup/backups
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
+            -e AWS_DEFAULT_REGION=us-east-1
+
+      - name: Check that table got imported
+        uses: addnab/docker-run-action@v3
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          shell: bash
+          run: >
+            [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
+              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT name FROM books WHERE author=$$Linda Skugge$$;
+              '` ]]
+          options: >
+            -e PGPASSWORD=test
+
+      - name: Clear DB table
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          shell: bash
+          run: >
+            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+              DROP TABLE books;
+              DROP TABLE movies;
+            ' && [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+              SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
+            '` ]]
+          options: >
+            -e PGPASSWORD=test
+
+      - name: Restore Backup (DB_USE_ENV)
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          run: python3 -u /backup/restore.py test_${{ matrix.postgres_version }}_env
+          options: >
+            -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
+            -e DB_USE_ENV=True
+            -e PGHOST=postgres
+            -e PGPASSWORD=test
+            -e PGUSER=test
+            -e PGDATABASE=test_${{ matrix.postgres_version }}
+            -e S3_PATH=s3://test-postgresql-backup/backups
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
+            -e AWS_DEFAULT_REGION=us-east-1
+
+      - name: Check that table got imported
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          shell: bash
+          run: >
+            [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
+              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT name FROM books WHERE author=$$Linda Skugge$$;
+              '` ]]
+          options: >
+            -e PGPASSWORD=test
+
+      - name: Clear DB table
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          shell: bash
+          run: >
+            psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -c '
+              DROP TABLE books;
+              DROP TABLE movies;
+            ' && [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+              SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
+            '` ]]
+          options: >
+            -e PGPASSWORD=test
+
+      - name: Restore Backup (PG_DUMP_EXTRA_OPTIONS)
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgresql-backup:test-${{ matrix.postgres_version }}
+          run: python3 -u /backup/restore.py test_${{ matrix.postgres_version }}_exclude
+          options: >
+            -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
+            -e DB_HOST=postgres
+            -e DB_PASS=test
+            -e DB_USER=test
+            -e DB_NAME=test_${{ matrix.postgres_version }}
+            -e S3_PATH=s3://test-postgresql-backup/backups
+            -e AWS_ACCESS_KEY_ID=access_key
+            -e AWS_SECRET_ACCESS_KEY=secret
+            -e AWS_DEFAULT_REGION=us-east-1
+
+      - name: Check that table got imported (PG_DUMP_EXTRA_OPTIONS)
+        uses: addnab/docker-run-action@main
+        with:
+          image: postgres:${{ matrix.postgres_version }}
+          shell: bash
+          run: >
+            [[ "1" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$books$$;
+              '` ]] && [[ "Fittstim" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT name FROM books WHERE author=$$Linda Skugge$$;
+              '` ]] && [[ "0" == `psql -d test_${{ matrix.postgres_version }} -U test -h postgres -p ${{ job.services.postgres.ports[5432] }} -A -t -c '
+                SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename=$$movies$$;
+              '` ]]
+          options: >
+            -e PGPASSWORD=test

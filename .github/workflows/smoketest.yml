@@ -1,0 +1,88 @@
+name: Smoke-test on pg16
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  test-backup:
+    name: Test PostgreSQL Backup
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_USER: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create backup directory
+        run: mkdir -p ./backup-output
+
+      - name: Prepare build context
+        run: |
+          mkdir -p build/16
+          cp template/* build/16/
+          sed "s/%VERSION%/16/g" template/Dockerfile > build/16/Dockerfile
+
+      - name: Build test image
+        uses: docker/build-push-action@v6
+        with:
+          context: build/16
+          push: false
+          tags: postgresql-backup:test-16
+          load: true
+
+      - name: Run backup
+        run: |
+          docker run --rm \
+            --network=${{ job.container.network }} \
+            -e DB_HOST=postgres \
+            -e DB_PORT=5432 \
+            -e DB_PASS=test \
+            -e DB_USER=test \
+            -e DB_NAME=testdb \
+            -v ${{ github.workspace }}/backup-output:/data/backups \
+            --entrypoint "/backup/run.sh" \
+            postgresql-backup:test-16
+
+      - name: Check backup was created
+        run: |
+          echo "Checking for backup files..."
+          ls -la ${{ github.workspace }}/backup-output
+
+          # Count backup files
+          BACKUP_COUNT=$(find ${{ github.workspace }}/backup-output -type f | wc -l)
+
+          if [ "$BACKUP_COUNT" -eq 0 ]; then
+            echo "Error: No backup files were created!"
+            exit 1
+          else
+            echo "Success: Found $BACKUP_COUNT backup file(s)"
+          fi
+
+          # Verify backup file format
+          BACKUP_FILE=$(find ${{ github.workspace }}/backup-output -type f | head -n 1)
+          echo "Backup file: $BACKUP_FILE"
+
+          # Check if the backup file is a valid PostgreSQL dump
+          if file "$BACKUP_FILE" | grep -q "PostgreSQL"; then
+            echo "Success: Backup file is a valid PostgreSQL dump"
+          else
+            echo "Warning: Backup file format could not be verified"
+            file "$BACKUP_FILE"
+          fi
