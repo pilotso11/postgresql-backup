@@ -4,19 +4,12 @@ on: [push, pull_request]
 jobs:
   tests:
     name: ${{ matrix.version }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {version: '16', os: ubuntu-latest}
-          - {version: '15', os: ubuntu-latest}
-          - {version: '14', os: ubuntu-latest}
-          - {version: '13', os: ubuntu-latest}
-          - {version: '12', os: ubuntu-latest}
-          - {version: '11', os: ubuntu-latest}
-          - {version: '10', os: ubuntu-latest}
+        version: ['10', '11', '12', '13', '14', '15', '16', '17']
 
     services:
       postgres:
@@ -77,17 +70,25 @@ jobs:
 
       - uses: actions/checkout@v2
 
-      - name: Build Docker Image
-        uses: docker/build-push-action@v2
+      - name: Prepare build context
+        run: |
+          mkdir -p build/${{ matrix.version }}
+          cp template/* build/${{ matrix.version }}/
+          sed "s/%VERSION%/${{ matrix.version }}/g" template/Dockerfile > build/${{ matrix.version }}/Dockerfile
+
+      - name: Build test image
+        uses: docker/build-push-action@v6
         with:
-          tags: heyman/postgresql-backup:latest
+          context: build/${{ matrix.version }}
           push: false
-          context: ${{ matrix.version }}
+          tags: postgresql-backup:test-${{ matrix.version }}
+          load: true
+
 
       - name: Take Backup
         uses: addnab/docker-run-action@v3
         with:
-          image: heyman/postgresql-backup:latest
+          image: postgresql-backup:test-${{ matrix.version }}
           run: python3 -u /backup/backup.py
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -104,7 +105,7 @@ jobs:
       - name: Take Backup (using DB_USE_ENV)
         uses: addnab/docker-run-action@main
         with:
-          image: heyman/postgresql-backup:latest
+          image: postgresql-backup:test-${{ matrix.version }}
           run: python3 -u /backup/backup.py
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -122,7 +123,7 @@ jobs:
       - name: Take Backup (using PG_DUMP_EXTRA_OPTIONS)
         uses: addnab/docker-run-action@main
         with:
-          image: heyman/postgresql-backup:latest
+          image: postgresql-backup:test-${{ matrix.version }}
           run: python3 -u /backup/backup.py
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -180,7 +181,7 @@ jobs:
       - name: Restore Backup
         uses: addnab/docker-run-action@v3
         with:
-          image: heyman/postgresql-backup:latest
+          image: postgresql-backup:test-${{ matrix.version }}
           run: python3 -u /backup/restore.py test_${{ matrix.version }}
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -225,7 +226,7 @@ jobs:
       - name: Restore Backup (DB_USE_ENV)
         uses: addnab/docker-run-action@main
         with:
-          image: heyman/postgresql-backup:latest
+          image: postgresql-backup:test-${{ matrix.version }}
           run: python3 -u /backup/restore.py test_${{ matrix.version }}_env
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
@@ -271,7 +272,7 @@ jobs:
       - name: Restore Backup (PG_DUMP_EXTRA_OPTIONS)
         uses: addnab/docker-run-action@main
         with:
-          image: heyman/postgresql-backup:latest
+          image: postgresql-backup:test-${{ matrix.version }}
           run: python3 -u /backup/restore.py test_${{ matrix.version }}_exclude
           options: >
             -e S3_EXTRA_OPTIONS='--endpoint-url=http://s3:8000' 
