@@ -55,7 +55,8 @@ jobs:
         run: |
           docker run --rm \
             --link postgres-test:db \
-            -e DB_USE_ENV=true
+            -e DB_USE_ENV=true \
+            -e DB_NAME=testdb \
             -v ${{ github.workspace }}/backup-output:/data/backups \
             --entrypoint "/backup/run.sh" \
             postgresql-backup:test-16
