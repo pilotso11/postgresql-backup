@@ -47,12 +47,6 @@ jobs:
           tags: postgresql-backup:test-16
           load: true
 
-      - name: Wait for PostgreSQL to start
-        run: |
-          echo "Waiting for PostgreSQL to start..."
-          timeout 30s bash -c 'until docker exec postgres-test pg_isready -U postgres; do sleep 1; done'
-          echo "PostgreSQL is ready!"
-
       - name: Run backup
         run: |
           docker run --rm \
