@@ -14,7 +14,9 @@ docker run -it --rm --name=pgbackup \
     -e DB_HOST=the.db.host \
     -e DB_USER=username \
     -e DB_PASS=password \
+    -e DB_PASS_FILE=/run/secrets/db_password \
     -e DB_NAME=database_name \
+    -e DB_NAMES="db1,db2,db3" \
     -e S3_PATH='s3://my-bucket/backups/' \
     -e AWS_ACCESS_KEY_ID='[aws key id]' \
     -e AWS_SECRET_ACCESS_KEY='[aws secret key]' \
@@ -26,8 +28,10 @@ docker run -it --rm --name=pgbackup \
 * `CRON_SCHEDULE`: The time schedule part of a crontab file (e.g: `15 3 * * *` for every night 03:15)
 * `DB_HOST`: Postgres hostname
 * `DB_PASS`: Postgres password
+* `DB_PASS_FILE`: Path to a file containing the Postgres password. If set, overrides `DB_PASS`.
 * `DB_USER`: Postgres username
 * `DB_NAME`: Name of database
+* `DB_NAMES`: Comma-separated list of database names to back up. If set, overrides `DB_NAME` and backs up each listed database.
 
 ## Optional environment variables
 
@@ -93,11 +97,9 @@ To do this, we run the container with the command: `python -u /backup/restore.py
 The following environment variables are required:
 
 * `DB_HOST`: Postgres hostname
-* `DB_PASS`: Postgres password
-* `DB_PASS_FILE`: Path to a file containing the Postgres password. If this is set, `DB_PASS` will be ignored.
+* `DB_PASS` or `DB_PASS_FILE`: Postgres password
 * `DB_USER`: Postgres username
-* `DB_NAME`: Name of database to import into
-* `DB_NAMES`: Comma separated list of database names to restore. If not set, the first database in the backup file will be restored.
+* `DB_NAME` or `DB_NAMES`: Name of database to import into
 
 The following environment variables are required if the file to restore is not already in the backup volume:
 

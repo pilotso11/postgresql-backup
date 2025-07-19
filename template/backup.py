@@ -161,6 +161,8 @@ def main_one(db_name: str):
 
 def main():
     if not DB_NAMES:
+        if not DB_NAME:
+            raise Exception("DB_NAME must be set")
         main_one(DB_NAME)
     else:
         for name in DB_NAMES.split(","):
