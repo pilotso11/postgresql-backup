@@ -3,7 +3,10 @@ name: Docker Build and Push
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Allow manual triggering
+    tags: [ 'v*', 'latest' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
   build-and-push:
@@ -35,12 +38,15 @@ jobs:
         with:
           images: ${{ github.repository }}
           tags: |
-            type=ref,event=branch-pg${{ matrix.postgres-version }}
-            type=ref,event=pr-pg${{ matrix.postgres-version }}
-            type=semver,pattern={{version}}-pg${{ matrix.postgres-version }}
-            type=semver,pattern={{major}}.{{minor}}-pg${{ matrix.postgres-version }}
-            type=semver,pattern={{major}}-pg${{ matrix.postgres-version }}
-            type=sha-pg${{ matrix.postgres-version }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+          flavor: |
+            latest=auto
+            suffix=-pg${{ matrix.postgres-version }},onlatest=true
 
       - name: Prepare build context
         run: |
